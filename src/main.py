@@ -9,6 +9,7 @@ from src.constants import (
     ACTIVATE_THREAD_PREFX,
     MAX_THREAD_MESSAGES,
     SECONDS_DELAY_RECEIVING_MSG,
+    MODERTATOR_ID
 )
 import asyncio
 from src.utils import (
@@ -26,6 +27,10 @@ from src.moderation import (
     send_moderation_flagged_message,
 )
 
+import argparse
+
+disable_mod = True
+
 logging.basicConfig(
     format="[%(asctime)s] [%(filename)s:%(lineno)d] %(message)s", level=logging.INFO
 )
@@ -41,15 +46,15 @@ tree = discord.app_commands.CommandTree(client)
 async def on_ready():
     logger.info(f"We have logged in as {client.user}. Invite URL: {BOT_INVITE_URL}")
     completion.MY_BOT_NAME = client.user.name
-    completion.MY_BOT_EXAMPLE_CONVOS = []
-    for c in EXAMPLE_CONVOS:
-        messages = []
-        for m in c.messages:
-            if m.user == "Lenard":
-                messages.append(Message(user=client.user.name, text=m.text))
-            else:
-                messages.append(m)
-        completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
+    # completion.MY_BOT_EXAMPLE_CONVOS = []
+    # for c in EXAMPLE_CONVOS:
+    #     messages = []
+    #     for m in c.messages:
+    #         if m.user == "Lenard":
+    #             messages.append(Message(user=client.user.name, text=m.text))
+    #         else:
+    #             messages.append(m)
+    #     completion.MY_BOT_EXAMPLE_CONVOS.append(Conversation(messages=messages))
     await tree.sync()
 
 
@@ -128,7 +133,7 @@ async def chat_command(int: discord.Interaction, message: str):
             # fetch completion
             messages = [Message(user=user.name, text=message)]
             response_data = await generate_completion_response(
-                messages=messages, user=user
+                messages=messages, user=user, disable_mod=disable_mod
             )
             # send the result
             await process_response(
@@ -177,48 +182,59 @@ async def on_message(message: DiscordMessage):
             await close_thread(thread=thread)
             return
 
-        # moderate the message
-        flagged_str, blocked_str = moderate_message(
-            message=message.content, user=message.author
-        )
-        await send_moderation_blocked_message(
-            guild=message.guild,
-            user=message.author,
-            blocked_str=blocked_str,
-            message=message.content,
-        )
-        if len(blocked_str) > 0:
-            try:
-                await message.delete()
-                await thread.send(
-                    embed=discord.Embed(
-                        description=f"❌ **{message.author}'s message has been deleted by moderation.**",
-                        color=discord.Color.red(),
-                    )
-                )
-                return
-            except Exception as e:
-                await thread.send(
-                    embed=discord.Embed(
-                        description=f"❌ **{message.author}'s message has been blocked by moderation but could not be deleted. Missing Manage Messages permission in this Channel.**",
-                        color=discord.Color.red(),
-                    )
-                )
-                return
-        await send_moderation_flagged_message(
-            guild=message.guild,
-            user=message.author,
-            flagged_str=flagged_str,
-            message=message.content,
-            url=message.jump_url,
-        )
-        if len(flagged_str) > 0:
-            await thread.send(
-                embed=discord.Embed(
-                    description=f"⚠️ **{message.author}'s message has been flagged by moderation.**",
-                    color=discord.Color.yellow(),
-                )
+        if not disable_mod:
+            # moderate the message
+            flagged_str, blocked_str = moderate_message(
+                message=message.content, user=message.author
             )
+            await send_moderation_blocked_message(
+                guild=message.guild,
+                user=message.author,
+                blocked_str=blocked_str,
+                message=message.content,
+            )
+            if len(blocked_str) > 0:
+                try:
+                    await message.delete()
+                    await thread.send(
+                        embed=discord.Embed(
+                            description=f"❌ **{message.author}'s message has been deleted by moderation.**",
+                            color=discord.Color.red(),
+                        )
+                    )
+                    return
+                except Exception as e:
+                    await thread.send(
+                        embed=discord.Embed(
+                            description=f"❌ **{message.author}'s message has been blocked by moderation but could not be deleted. Missing Manage Messages permission in this Channel.**",
+                            color=discord.Color.red(),
+                        )
+                    )
+                    return
+            await send_moderation_flagged_message(
+                guild=message.guild,
+                user=message.author,
+                flagged_str=flagged_str,
+                message=message.content,
+                url=message.jump_url,
+            )
+            if len(flagged_str) > 0:
+                await thread.send(
+                    embed=discord.Embed(
+                        description=f"⚠️ **{message.author}'s message has been flagged by moderation.**",
+                        color=discord.Color.yellow(),
+                    )
+                )
+
+        # restart bot if sent by moderator
+        if message.author == MODERTATOR_ID:
+            if message.content == '####restart':
+                await client.close()
+                asyncio.sleep(3)
+                await client.connect()
+            if message.content == '####shutdown':
+                await client.close()
+        
 
         # wait a bit in case user has more messages
         if SECONDS_DELAY_RECEIVING_MSG > 0:
@@ -232,7 +248,7 @@ async def on_message(message: DiscordMessage):
                 return
 
         logger.info(
-            f"Thread message to process - {message.author}: {message.content[:50]} - {thread.name} {thread.jump_url}"
+            f"Thread message to process - {message.author}: {message.content[:200]} - {thread.name} {thread.jump_url}"
         )
 
         channel_messages = [
@@ -264,4 +280,10 @@ async def on_message(message: DiscordMessage):
         logger.exception(e)
 
 
-client.run(DISCORD_BOT_TOKEN)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-D', '--disable-mod', action='store_true')
+    args = parser.parse_args()
+    disable_mod = args.disable_mod
+
+    client.run(DISCORD_BOT_TOKEN)
