@@ -101,7 +101,7 @@ async def generate_completion_response(
     except Exception as e:
         logger.exception(e)
         return CompletionData(
-            status=CompletionResult.OTHER_ERROR, reply_text=TIMEOUT_REPLY, status_text=None #status_text=str(e)
+            status=CompletionResult.OTHER_ERROR, reply_text=None, status_text=TIMEOUT_REPLY #status_text=str(e)
         )
 
 
