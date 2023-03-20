@@ -248,14 +248,35 @@ async def on_message(message: DiscordMessage):
                 return
 
         logger.info(
-            f"Thread message to process - {message.author}: {message.content[:200]} - {thread.name} {thread.jump_url}"
+            f"Thread message to process - {message.author}: {message.content[:50]} - {thread.name} {thread.jump_url}"
         )
 
-        channel_messages = [
+        # # all prior messages are used as context up until 70% of token limit (4097 * 0.5 = 2048)
+        messages = []
+        channel_messages = []
+        token_limit = 2048
+        total = 0
+        # async for message in thread.history(limit=MAX_THREAD_MESSAGES):
+        #     m = discord_message_to_message(message)
+        #     if total > token_limit or m is None:
+        #         break
+        #     total += len(m.text)
+        #     channel_messages.append(m)
+        #     logger.info(total)
+        #     # logger.info(channel_messages)
+
+        messages = [
             discord_message_to_message(message)
             async for message in thread.history(limit=MAX_THREAD_MESSAGES)
         ]
-        channel_messages = [x for x in channel_messages if x is not None]
+        # channel_messages = [x for x in channel_messages if x is not None]
+        for m in messages:
+            if m is None:
+                continue
+            if total > token_limit:
+                break
+            channel_messages.append(m)
+            total += len(m.text)
         channel_messages.reverse()
 
         # generate the response
