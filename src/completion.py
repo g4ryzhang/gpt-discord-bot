@@ -7,6 +7,8 @@ from src.constants import (
     BOT_INSTRUCTIONS,
     BOT_NAME,
     EXAMPLE_CONVOS,
+    REQUEST_TIMEOUT,
+    TIMEOUT_REPLY
 )
 import discord
 from src.base import Message, Prompt, Conversation
@@ -15,6 +17,7 @@ from src.moderation import (
     send_moderation_flagged_message,
     send_moderation_blocked_message,
 )
+import asyncio
 
 MY_BOT_NAME = BOT_NAME
 MY_BOT_EXAMPLE_CONVOS = EXAMPLE_CONVOS
@@ -37,29 +40,34 @@ class CompletionData:
 
 
 async def generate_completion_response(
-    messages: List[Message], user: str
+    messages: List[Message], user: str, disable_mod: bool=False
 ) -> CompletionData:
     try:
-        prompt = Prompt(
-            header=Message(
-                "System", f"Instructions for {MY_BOT_NAME}: {BOT_INSTRUCTIONS}"
-            ),
-            examples=MY_BOT_EXAMPLE_CONVOS,
-            convo=Conversation(messages + [Message(MY_BOT_NAME)]),
-        )
-        rendered = prompt.render()
-        response = openai.Completion.create(
-            engine="text-davinci-003",
-            prompt=rendered,
+        if not disable_mod:
+            prompt = Prompt(
+                header=Message(
+                    "System", f"Instructions for {MY_BOT_NAME}: {BOT_INSTRUCTIONS}"
+                ),
+                examples=MY_BOT_EXAMPLE_CONVOS,
+                convo=Conversation(messages + [Message(MY_BOT_NAME)]),
+            )
+            rendered = prompt.render()
+        message_list = [{'role': 'system' if user == 'ZyraG#8519' and m.text[:4] == '####' else 'user', 'content': m.text} for m in messages]
+        # await asyncio.sleep(30)
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=message_list,
             temperature=1.0,
-            top_p=0.9,
-            max_tokens=512,
+            # top_p=0.9,
+            max_tokens=2048,
             stop=["<|endoftext|>"],
+            request_timeout=REQUEST_TIMEOUT
         )
-        reply = response.choices[0].text.strip()
-        if reply:
+        
+        reply = response.choices[0].message.content.strip()
+        if reply and not disable_mod:
             flagged_str, blocked_str = moderate_message(
-                message=(rendered + reply)[-500:], user=user
+                message=(rendered + reply), user=user
             )
             if len(blocked_str) > 0:
                 return CompletionData(
@@ -93,7 +101,7 @@ async def generate_completion_response(
     except Exception as e:
         logger.exception(e)
         return CompletionData(
-            status=CompletionResult.OTHER_ERROR, reply_text=None, status_text=str(e)
+            status=CompletionResult.OTHER_ERROR, reply_text=None, status_text=TIMEOUT_REPLY #status_text=str(e)
         )
 
 
